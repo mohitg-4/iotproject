@@ -1,0 +1,62 @@
+IOT Project website outline:
+
+Purpose:
+Tracking alerts from sensors set throughout a region. Meant to alert authorities about possible poaching activities in a region. The website should be minimalistic with information only shown when required. For now use the Purpose as only a guide to design and not as backend code requirements.
+
+Hosting:
+Will be hosting locally for testing but use GitHub pages for actual website.
+
+Design Themes:
+Have a setting for dark or light mode. Use a high contrast colour theme in dark mode (upto your discretion which colours). Keep gentle outlines around boxes and buttons. round the borders slightly. Let the main sidebar be on the left of the page. Make it fully opaque with only lines between options. Upon opening a window using the dashboard a header bar appears which contains navigation options and a back and forward button for that specific window as mentioned below.
+
+
+Main sidebar:
+1. Dashboard
+2. How to Use
+3. Settings
+4. Emergency contact settings
+
+Dashboard:
+*As a movable window defaulted on the top right side of the screen. Boldens text and changes colour of text from white to red on selecting. Upon hover text is boldened.*
+*displays all unviewed alerts. number of active sensors. and time vs alerts graph.*
+- Alerts
+- Captured Footage
+- Sensor map
+- Animal Tracking
+
+Alerts:
+*in the header bar list the options as follows. When alerts is clicked on the dashboard open recent alert by default*
+- Recent alert
+- Alert history
+- Alert settings
+Recent alert:
+*Displays most recent alert with a map of the location of sensor triggered. Trigger time. Sector name. Sensor id. Trigger method (sound, video etc). Trigger confidence percent. Button to access captured footage/sound through inbuilt mp4/mp3 player. Trigger duration.* Format these in a minimalistic fashion following the same design ideologies as the rest of the website.
+We should be able to use a similar page to load previous alerts as well. The previous alerts can be accessed through the Alert history page.
+Alert history:
+*displays all previous alerts in a cascaded cards format. We should be able to sort by recency, Trigger duration, Trigger time(irrespective of date) and Trigger confidence. We should also be able to filter by Sector name, Sensor id, Trigger method, Trigger location. Upon selecting an alert to open we open up the alert in the same format as the recent alert page.
+Alert settings:
+*just make the options and ignore specifics for now*
+
+Captured Footage:
+An inbuilt video player that has options to-
+- View video/audio frame by frame
+- Download video/audio
+- view exact trigger moment
+- filters for visibility enhancement.
+- view metadata of video/audio.
+
+Sensor map:
+*in the header bar list the options as follows. When Sensor map is clicked on Dashboard open Active sensors by default*
+*Map formatting: The map is in between the sidebars and header bars. whatever remaining space is there fill it with the map. Have some tools on it for traversal such as zooming, dragging etc. (just copy google maps interface and use maps api if possible). Show all sensors using dots. If a sensor is classified as active show it in green. Show the sensor with the most recent alert in red. Show inactive sensors with grey*
+while map is open in the middle of the screen open a sidebar on the right side of the screen which shows all active sensors
+-map options
+-sensor sidebar
+Map options:
+*Tools to navigate the map. Upon selecting a sensor from the sensor sidebar that sensor will be highlighted in purple and become a slightly bigger dot*
+Sensor sidebar:
+*Display a list of all sensors and show inactive sensors faded out. Represent the sensors in small rectangles with the sensor id visible and a little green or red dot on the top right that shows if that sensor is active or inactive. Upon hovering on a sensor rectangle show an edit button, and a delete button. open up a page similiar to the add sensor page. At the top of this sidebar have an option to add a new sensor.*
+
+Animal Tracking:
+Just make a page similar to the Sensor map page.
+
+Dont get too stuck up in the backend integration just make a functioning frontend for now.
