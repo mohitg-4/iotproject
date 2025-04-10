@@ -57,3 +57,22 @@ body {
 .animate-grow-shrink {
   animation: grow-shrink 0.2s ease-in-out; /* Adjust duration as needed */
 }
+
+@layer utilities {
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: #1f2937; /* gray-800 */
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: #4b5563; /* gray-600 */
+    border-radius: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: #6b7280; /* gray-500 */
+  }
+}

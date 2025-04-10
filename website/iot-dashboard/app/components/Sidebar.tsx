@@ -5,7 +5,7 @@ import Link from "next/link";
 import { FiMenu, FiX, FiHome, FiBook, FiSettings, FiAlertTriangle } from "react-icons/fi";
 
 const Sidebar = () => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   return (
     <>
