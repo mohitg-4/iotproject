@@ -24,9 +24,6 @@ app.post("/upload", async (req, res) => {
   console.log("Received data:", req.body); // Debug log
   try {
     const data = req.body;
-    if (!data.name) {
-      return res.status(400).json({ status: "error", message: "Name is required" });
-    }
     
     const reading = new Reading(data);
     const savedReading = await reading.save();
