@@ -6,17 +6,18 @@ export async function GET() {
     const client = await clientPromise;
     const db = client.db("iotDatabase");
     // Changed from 'alerts' to 'sensorData'
-    const alerts = await db.collection("sensorData").find({ 
-      "alert.viewed": false 
+    const alerts = await db.collection("sensorData").find({
+      "sensorData.viewed": false, // Fetch only unread alerts
     }).toArray();
 
     const stats = {
       unreadCount: alerts.length,
       mostRecentTime: alerts.length > 0 ? 
-        new Date(Math.max(...alerts.map(a => new Date(a.timestamp).getTime()))).toISOString() : '',
+        new Date(Math.max(...alerts.map(a => new Date(a.sensorData.timestamp).getTime()))).toISOString() : '',
       oldestTime: alerts.length > 0 ? 
-        new Date(Math.min(...alerts.map(a => new Date(a.timestamp).getTime()))).toISOString() : ''
+        new Date(Math.min(...alerts.map(a => new Date(a.sensorData.timestamp).getTime()))).toISOString() : ''
     };
+    
 
     return NextResponse.json(stats);
   } catch (e) {

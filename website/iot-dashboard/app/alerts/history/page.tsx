@@ -3,21 +3,24 @@
 import { useState, useEffect } from "react";
 import { FiFilter } from "react-icons/fi";
 
-interface Alert {
-  _id: string;
+interface SensorData {
+  timestamp: Date;
   sensorId: string;
-  timestamp: string;
-  location: string;
-  readings: {
-    temperature: number;
-    motion: boolean;
+  alertType: "AOK" | "Poaching alert";
+  videoData: {
+    available: boolean;
+    data: string;
   };
-  alert: {
-    type: string;
-    confidence: number;
-    viewed: boolean;
-    severity: string;
+  audioData: {
+    available: boolean;
+    data: string;
   };
+  viewed: boolean;
+  _id?: string;
+}
+
+interface Alert {
+  sensorData: SensorData;
 }
 
 export default function AlertHistory() {
@@ -28,7 +31,7 @@ export default function AlertHistory() {
 
   useEffect(() => {
     fetchAlerts();
-  }, []); // Fetch on component mount
+  }, []);
 
   const fetchAlerts = async () => {
     try {
@@ -37,13 +40,84 @@ export default function AlertHistory() {
       if (!response.ok) throw new Error('Failed to fetch alerts');
       
       const data = await response.json();
-      // Filter only entries with alerts
-      const alertsData = data.filter((item: Alert) => item.alert);
-      setAlerts(alertsData);
+      setAlerts(data);
     } catch (error) {
       console.error('Error fetching alerts:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAlertClick = async (alert: Alert, index: number) => {
+    if (!alert.sensorData.viewed) {
+      try {
+        // Update the alert in the database
+        const response = await fetch(`/api/sensorData/${alert.sensorData._id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            "sensorData.viewed": true
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to update alert');
+        }
+
+        // Update the local state
+        setAlerts(prevAlerts => {
+          const newAlerts = [...prevAlerts];
+          newAlerts[index] = {
+            ...newAlerts[index],
+            sensorData: {
+              ...newAlerts[index].sensorData,
+              viewed: true
+            }
+          };
+          return newAlerts;
+        });
+      } catch (error) {
+        console.error('Error updating alert:', error);
+      }
+    }
+  };
+
+  const handleMarkAllAsViewed = async () => {
+    // Get all unviewed alerts
+    const unviewedAlerts = alerts.filter(alert => !alert.sensorData.viewed);
+    
+    if (unviewedAlerts.length === 0) return;
+    
+    try {
+      // Update all alerts in the database
+      const promises = unviewedAlerts.map(alert => 
+        fetch(`/api/sensorData/${alert.sensorData._id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            "sensorData.viewed": true
+          }),
+        })
+      );
+      
+      await Promise.all(promises);
+      
+      // Update local state
+      setAlerts(prevAlerts => 
+        prevAlerts.map(alert => ({
+          ...alert,
+          sensorData: {
+            ...alert.sensorData,
+            viewed: alert.sensorData.viewed ? true : true // Set all to viewed
+          }
+        }))
+      );
+    } catch (error) {
+      console.error('Error marking all alerts as viewed:', error);
     }
   };
 
@@ -54,30 +128,43 @@ export default function AlertHistory() {
     if (filterBy !== "all") {
       filtered = filtered.filter(alert => {
         switch (filterBy) {
-          case "unread": return !alert.alert.viewed;
-          case "high_severity": return alert.alert.severity === "high";
-          case "motion": return alert.readings.motion;
-          default: return true;
+          case "poaching": 
+            return alert.sensorData.alertType === "Poaching alert";
+          case "aok": 
+            return alert.sensorData.alertType === "AOK";
+          case "unread":
+            return !alert.sensorData.viewed;
+          case "read":
+            return alert.sensorData.viewed;
+          case "video_available": 
+            return alert.sensorData.videoData.available;
+          case "audio_available": 
+            return alert.sensorData.audioData.available;
+          default: 
+            return true;
         }
       });
     }
 
     // Apply sorting
     return filtered.sort((a, b) => {
+      const timestampA = new Date(a.sensorData.timestamp).getTime();
+      const timestampB = new Date(b.sensorData.timestamp).getTime();
+      
       switch (sortBy) {
         case "newest":
-          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+          return timestampB - timestampA;
         case "oldest":
-          return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-        case "confidence":
-          return b.alert.confidence - a.alert.confidence;
+          return timestampA - timestampB;
         case "sensor":
-          return a.sensorId.localeCompare(b.sensorId);
+          return a.sensorData.sensorId.localeCompare(b.sensorData.sensorId);
         default:
           return 0;
       }
     });
   };
+
+  const unreadCount = alerts.filter(alert => !alert.sensorData.viewed).length;
 
   // Test if data is being fetched
   useEffect(() => {
@@ -99,7 +186,6 @@ export default function AlertHistory() {
             >
               <option value="newest">Newest First</option>
               <option value="oldest">Oldest First</option>
-              <option value="confidence">Confidence</option>
               <option value="sensor">Sensor ID</option>
             </select>
           </div>
@@ -112,10 +198,24 @@ export default function AlertHistory() {
               className="w-full p-2 bg-gray-700 text-white rounded border border-gray-600"
             >
               <option value="all">All Alerts</option>
-              <option value="unread">Unread Only</option>
-              <option value="high_severity">High Severity</option>
-              <option value="motion">Motion Detected</option>
+              <option value="poaching">Poaching Alerts</option>
+              <option value="aok">All OK</option>
+              <option value="unread">Unread ({unreadCount})</option>
+              <option value="read">Read</option>
+              <option value="video_available">Video Available</option>
+              <option value="audio_available">Audio Available</option>
             </select>
+          </div>
+          
+          <div className="flex items-end">
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllAsViewed}
+                className="w-full p-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Mark All as Read
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -126,31 +226,56 @@ export default function AlertHistory() {
         <div className="text-white text-center">No alerts found</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-6xl mx-auto">
-          {getFilteredAndSortedAlerts().map((alert) => (
+          {getFilteredAndSortedAlerts().map((alert, index) => (
             <div 
-              key={alert._id}
-              className={`p-4 rounded-lg shadow-lg transition-all duration-200 ${
-                alert.alert.viewed ? 'bg-gray-800' : 'bg-red-900/50 border border-red-500'
+              key={alert.sensorData._id || index}
+              className={`p-4 rounded-lg shadow-lg transition-all duration-200 cursor-pointer ${
+                alert.sensorData.alertType === "AOK" 
+                  ? 'bg-gray-800' 
+                  : !alert.sensorData.viewed 
+                    ? 'bg-red-900/50 border border-red-500' 
+                    : 'bg-red-900/30 border border-red-300'
               }`}
+              onClick={() => handleAlertClick(alert, index)}
             >
               <div className="flex justify-between items-start mb-3">
                 <div className="text-lg font-semibold text-white">
-                  Sensor {alert.sensorId}
+                  Sensor {alert.sensorData.sensorId}
                 </div>
-                {!alert.alert.viewed && (
-                  <span className="px-2 py-1 text-xs bg-red-500 text-white rounded-full">
-                    New
-                  </span>
-                )}
+                <div className="flex items-center space-x-2">
+                  {!alert.sensorData.viewed && (
+                    <span className="px-2 py-1 text-xs bg-blue-500 text-white rounded-full">
+                      New
+                    </span>
+                  )}
+                  {alert.sensorData.alertType === "Poaching alert" && (
+                    <span className="px-2 py-1 text-xs bg-red-500 text-white rounded-full">
+                      Alert
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="space-y-2 text-gray-300">
-                <p>📍 {alert.location}</p>
-                <p>⏰ {new Date(alert.timestamp).toLocaleString()}</p>
-                <p>⚠️ {alert.alert.type}</p>
-                <p>🎯 Confidence: {alert.alert.confidence}%</p>
-                <p>🔔 Severity: {alert.alert.severity}</p>
-                {alert.readings.motion && <p>🏃 Motion Detected</p>}
-                <p> Temperature: {alert.readings.temperature}°C</p>
+                <p>⏰ {new Date(alert.sensorData.timestamp).toLocaleString()}</p>
+                <p>⚠️ {alert.sensorData.alertType}</p>
+                
+                <div className="mt-3">
+                  <p className="font-semibold">Media Captured:</p>
+                  <p>📹 Video: {alert.sensorData.videoData.available ? 'Available' : 'Not available'}</p>
+                  <p>🔊 Audio: {alert.sensorData.audioData.available ? 'Available' : 'Not available'}</p>
+                </div>
+                
+                {alert.sensorData.videoData.available && (
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-400">Video data available</p>
+                  </div>
+                )}
+                
+                {alert.sensorData.audioData.available && (
+                  <div className="mt-2">
+                    <p className="text-sm text-gray-400">Audio data available</p>
+                  </div>
+                )}
               </div>
             </div>
           ))}

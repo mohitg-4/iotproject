@@ -8,7 +8,8 @@ export async function GET() {
     const db = client.db("iotDatabase");
     const alerts = await db.collection("sensorData")
       .find({})
-      .sort({ timestamp: -1 })
+      // Fix: Sort by the nested timestamp field
+      .sort({ "sensorData.timestamp": -1 })
       .limit(100)
       .toArray();
     
@@ -18,7 +19,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function PUT(request: Request) {
   try {
     const client = await clientPromise;
     const db = client.db("iotDatabase");
@@ -28,7 +29,8 @@ export async function POST(request: Request) {
     if (data.action === 'markViewed') {
       const result = await db.collection("sensorData").updateOne(
         { _id: data.alertId },
-        { $set: { viewed: true, viewedAt: new Date().toISOString() } }
+        // Fix: Update the nested viewed field
+        { $set: { "sensorData.viewed": true } }
       );
       return NextResponse.json({
         success: true,
@@ -39,10 +41,13 @@ export async function POST(request: Request) {
     // Handle new alert creation
     const alertData: SensorData = data;
     
-    // Add viewed status to new alerts
-    const alertWithStatus = {
-      ...alertData,
-      viewed: false,
+    // Fix: Structure the document correctly with nested sensorData
+    const newDocument = {
+      sensorData: {
+        ...alertData,
+        viewed: false,
+        timestamp: new Date().toISOString()
+      },
       createdAt: new Date().toISOString()
     };
     
@@ -54,9 +59,10 @@ export async function POST(request: Request) {
       );
     }
     
-    const result = await db.collection("sensorData").insertOne(alertWithStatus);
+    const result = await db.collection("sensorData").insertOne(newDocument);
     return NextResponse.json(result);
   } catch (e) {
+    console.error('Error storing alert:', e);
     return NextResponse.json({ error: 'Failed to store alert' }, { status: 500 });
   }
 }
