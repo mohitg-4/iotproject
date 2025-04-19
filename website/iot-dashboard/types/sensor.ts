@@ -7,18 +7,19 @@ export type Sensor = {
 }
 
 export type SensorData = {
-  timestamp: Date;
-  sensorId: string;
-  alertType: "AOK" | "Poaching alert";
-  videoData: {
-    available: boolean;
-    data: string;
-  };
-  audioData: {
-    available: boolean;
-    data: string;
-  };
-  viewed?: boolean;
-  createdAt?: string;
-  viewedAt?: string;
-}
+  sensorData: {
+    timestamp: Date | string;
+    sensorId: string;
+    alertType: 'AOK' | 'Poaching alert';
+    videoData: {
+      available: boolean;
+      data: string;
+    };
+    audioData: {
+      available: boolean;
+      data: string;
+    };
+    viewed: boolean;
+  }
+};
+
