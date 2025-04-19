@@ -2,6 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const Reading = require("./models/Reading");
+const mqttClient = require('./services/mqttClient');
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
