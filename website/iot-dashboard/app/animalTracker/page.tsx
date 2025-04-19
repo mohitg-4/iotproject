@@ -52,7 +52,15 @@ export default function AnimalTracker() {
     };
 
     fetchAnimals();
-  }, []);
+
+    // Set up automatic refresh interval
+    const refreshInterval = setInterval(() => {
+      fetchAnimals();
+  }, 30000);
+  
+  // Clean up interval when component unmounts
+  return () => clearInterval(refreshInterval);
+}, []); // Empty dependency array means this runs once on mount
 
   // Calculate if an animal is within its safe area
   const isAnimalSafe = (animal: Animal): boolean => {

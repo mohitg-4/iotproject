@@ -55,5 +55,15 @@
   "C_Cpp_Runner.useLeakSanitizer": false,
   "C_Cpp_Runner.showCompilationTime": false,
   "C_Cpp_Runner.useLinkTimeOptimization": false,
-  "C_Cpp_Runner.msvcSecureNoWarnings": false
+  "C_Cpp_Runner.msvcSecureNoWarnings": false,
+  "idf.espIdfPathWin": "C:\\Users\\mohit\\esp\\v5.4\\esp-idf",
+  "idf.toolsPathWin": "C:\\Users\\mohit\\.espressif",
+  "idf.pythonInstallPath": "C:\\Users\\mohit\\.espressif\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32"
+  },
+  "idf.openOcdConfigs": [
+    "interface/ftdi/esp32_devkitj_v1.cfg",
+    "target/esp32.cfg"
+  ]
 }
