@@ -20,6 +20,7 @@ export type SensorData = {
       data: string;
     };
     viewed: boolean;
+    _id: string;
   }
 };
 

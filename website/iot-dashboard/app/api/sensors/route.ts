@@ -36,12 +36,14 @@ export async function PUT(request: Request) {
     const db = client.db("iotDatabase");
     const sensor: Sensor = await request.json();
     
+    // Use _id instead of id for MongoDB queries
     const result = await db.collection("sensors").updateOne(
-      { id: sensor.id },
+      { _id: new ObjectId(sensor._id) },
       { $set: sensor }
     );
     return NextResponse.json(result);
   } catch (e) {
+    console.error('Update error:', e);
     return NextResponse.json({ error: 'Failed to update sensor' }, { status: 500 });
   }
 }

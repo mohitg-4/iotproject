@@ -18,6 +18,13 @@ interface SensorStats {
   alerted: number;
 }
 
+interface AnimalStats {
+  total: number;
+  safe: number;
+  unsafe: number;
+  lastUpdate: string;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [isClicked, setIsClicked] = useState(false);
@@ -33,10 +40,17 @@ export default function Dashboard() {
     inactive: 0,
     alerted: 0
   });
+  const [animalStats, setAnimalStats] = useState<AnimalStats>({
+    total: 0,
+    safe: 0,
+    unsafe: 0,
+    lastUpdate: ''
+  });
 
   useEffect(() => {
     const fetchStats = async () => {
       try {
+        // Fetch sensor stats
         const sensorsResponse = await fetch('/api/sensors');
         const sensors = await sensorsResponse.json();
         
@@ -47,16 +61,59 @@ export default function Dashboard() {
           alerted: sensors.filter((s: any) => s.status === 'alert').length
         });
 
+        // Fetch alert stats
         const alertsResponse = await fetch('/api/alerts/stats');
         const alertData = await alertsResponse.json();
         
         setAlertStats(alertData);
+        
+        // Fetch animal stats
+        const animalsResponse = await fetch('/api/animals');
+        const animals = await animalsResponse.json();
+        
+        if (animals && animals.length > 0) {
+          // Calculate safe vs unsafe animals
+          const safeAnimals = animals.filter((animal: any) => {
+            // Calculate if animal is within safe area using Haversine formula
+            const { lat, lon } = animal.last_attributes;
+            const { lat: safeLat, lon: safeLon, radius } = animal.safe_area;
+            
+            const R = 6371e3; // Earth's radius in meters
+            const φ1 = (lat * Math.PI) / 180;
+            const φ2 = (safeLat * Math.PI) / 180;
+            const Δφ = ((safeLat - lat) * Math.PI) / 180;
+            const Δλ = ((safeLon - lon) * Math.PI) / 180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                      Math.cos(φ1) * Math.cos(φ2) *
+                      Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distance = R * c; // in meters
+
+            return distance <= radius;
+          });
+          
+          const now = new Date();
+          
+          setAnimalStats({
+            total: animals.length,
+            safe: safeAnimals.length,
+            unsafe: animals.length - safeAnimals.length,
+            lastUpdate: now.toLocaleTimeString()
+          });
+        }
       } catch (error) {
         console.error('Error fetching statistics:', error);
       }
     };
 
     fetchStats();
+    
+    // Set up refresh interval (every minute)
+    const intervalId = setInterval(fetchStats, 60000);
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(intervalId);
   }, []);
 
   const handleClick = () => {
@@ -141,21 +198,25 @@ export default function Dashboard() {
           </Link>
 
           {/* Animal Tracking Box */}
-          <Link href="/animal-tracking" className="block">
+          <Link href="/animalTracker" className="block">
             <div className="bg-gray-800 rounded-xl p-6 hover:bg-gray-700 transition-all min-h-[250px] aspect-square">
               <h2 className="text-2xl font-bold text-white mb-4">Animal Tracking</h2>
               <div className="space-y-3">
                 <div className="flex justify-between text-gray-300">
                   <span>Animals Tagged:</span>
-                  <span className="font-bold">0</span>
+                  <span className="font-bold">{animalStats.total}</span>
                 </div>
                 <div className="flex justify-between text-gray-300">
-                  <span>Active Tags:</span>
-                  <span className="font-bold text-green-400">0</span>
+                  <span>Safe Animals:</span>
+                  <span className="font-bold text-green-400">{animalStats.safe}</span>
+                </div>
+                <div className="flex justify-between text-gray-300">
+                  <span>Unsafe Animals:</span>
+                  <span className="font-bold text-red-400">{animalStats.unsafe}</span>
                 </div>
                 <div className="flex justify-between text-gray-300">
                   <span>Last Update:</span>
-                  <span>N/A</span>
+                  <span>{animalStats.lastUpdate || 'N/A'}</span>
                 </div>
               </div>
             </div>
