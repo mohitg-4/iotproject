@@ -15,10 +15,23 @@
 #include "driver/rtc_io.h"
 #include <WiFi.h>
 #include <WebServer.h>
+#include <WiFiClientSecure.h>  // For secure MQTT connection
+#include <PubSubClient.h>      // MQTT client
+#include <ArduinoJson.h>       // For JSON formatting
 
 // WiFi credentials - replace with your network credentials
 const char* ssid = "Mi 11X";
 const char* password = "Laptop99@!";
+
+// MQTT HiveMQ settings
+const char* mqtt_server = "c997ac04f7364048929feac82a351c39.s1.eu.hivemq.cloud";
+const int mqtt_port = 8883; // TLS/SSL port for secure connection
+const char* device_id = "CAM001"; // Set your camera device ID here
+const char* mqtt_username = "esp32-cam"; // ESP32-specific username
+const char* mqtt_password = "Laptop99@!"; // ESP32-specific password
+
+// MQTT topics
+char mqtt_topic_image[50]; // For image data
 
 // Web server will run on port 80
 WebServer server(80);
@@ -27,10 +40,20 @@ WebServer server(80);
 bool motionDetected = false;
 // Variable to store the latest camera image
 camera_fb_t * fb = NULL;
+// Array to store multiple camera images
+camera_fb_t* images[5] = {NULL, NULL, NULL, NULL, NULL};
 // Time when motion was detected
 unsigned long lastMotionTime = 0;
 // How long to keep the server running after motion (in milliseconds)
 const unsigned long KEEP_AWAKE_DURATION = 60000; // 1 minute
+// Add this constant at the top with other constants
+const unsigned long MOTION_RESET_TIME = 5000; // 5 seconds before allowing new motion detection
+// Delay between consecutive photos (milliseconds)
+const unsigned long PHOTO_DELAY = 500; 
+
+// WiFi and MQTT clients
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
 
 // Pin definition for CAMERA_MODEL_AI_THINKER
 #define PWDN_GPIO_NUM     32
@@ -78,30 +101,73 @@ void setup() {
   // Connect to WiFi
   connectToWiFi();
   
+  // Skip certificate verification (for testing only)
+  espClient.setInsecure();
+  
+  // Set up MQTT connection
+  mqttClient.setServer(mqtt_server, mqtt_port);
+  
+  // Create the MQTT topic
+  sprintf(mqtt_topic_image, "cameras/%s/image", device_id);
+  
   // Start web server
   setupWebServer();
   
   if (motionDetected) {
-    // Take a picture when motion is detected
-    capturePhoto();
+    // Take pictures when motion is detected
+    captureMultiplePhotos();
+    // Send them via MQTT
+    for (int i = 0; i < 5; i++) {
+      if (images[i] != NULL) {
+        sendImageViaMQTT(images[i], i);
+      }
+    }
   }
 }
 
 void loop() {
   server.handleClient();
   
+  // Keep MQTT connection alive
+  if (!mqttClient.connected()) {
+    reconnectMQTT();
+  }
+  mqttClient.loop();
+  
+  // Reset motion detection flag after a short period to allow new detections
+  if (motionDetected && (millis() - lastMotionTime > MOTION_RESET_TIME)) {
+    motionDetected = false;
+  }
+  
   // Check if PIR detected motion
   if (digitalRead(PIR_PIN) == HIGH && !motionDetected) {
     Serial.println("Motion detected!");
     motionDetected = true;
     lastMotionTime = millis();
-    capturePhoto();
+    
+    // Capture multiple photos
+    captureMultiplePhotos();
+    
+    // Send photos via MQTT
+    for (int i = 0; i < 5; i++) {
+      if (images[i] != NULL) {
+        sendImageViaMQTT(images[i], i);
+      }
+    }
   }
   
   // Check if we should go to sleep
   if (motionDetected && (millis() - lastMotionTime > KEEP_AWAKE_DURATION)) {
     Serial.println("Going to sleep now");
-    // Clean up
+    
+    // Clean up image buffers
+    for (int i = 0; i < 5; i++) {
+      if (images[i] != NULL) {
+        esp_camera_fb_return(images[i]);
+        images[i] = NULL;
+      }
+    }
+    
     if (fb) {
       esp_camera_fb_return(fb);
       fb = NULL;
@@ -117,7 +183,7 @@ void loop() {
     
     // Turn off LED
     digitalWrite(LED_PIN, LOW);
-    rtc_gpio_hold_en(GPIO_NUM_4);  // FIX: Changed from GPIO_NUM_LED to GPIO_NUM_4
+    rtc_gpio_hold_en(GPIO_NUM_4);
     
     delay(1000);
     esp_deep_sleep_start();
@@ -181,27 +247,63 @@ void connectToWiFi() {
   Serial.println(WiFi.localIP());
 }
 
-void capturePhoto() {
+// Capture a single photo
+camera_fb_t* capturePhoto() {
   // Turn on flash if needed
   digitalWrite(LED_PIN, HIGH);
   delay(100);
   
   // Capture a new image
-  if (fb) {
-    esp_camera_fb_return(fb);
-    fb = NULL;
-  }
-  
-  fb = esp_camera_fb_get();
-  if(!fb) {
+  camera_fb_t* new_fb = esp_camera_fb_get();
+  if(!new_fb) {
     Serial.println("Camera capture failed");
-    return;
+    return NULL;
   }
   
-  Serial.printf("Image captured! Size: %zu bytes\n", fb->len);
+  Serial.printf("Image captured! Size: %zu bytes\n", new_fb->len);
   
   // Turn off flash
   digitalWrite(LED_PIN, LOW);
+  
+  return new_fb;
+}
+
+// Capture multiple photos in sequence
+void captureMultiplePhotos() {
+  Serial.println("Capturing multiple photos...");
+  
+  // Free any previous images
+  for (int i = 0; i < 5; i++) {
+    if (images[i] != NULL) {
+      esp_camera_fb_return(images[i]);
+      images[i] = NULL;
+    }
+  }
+  
+  // Capture 5 photos with short delays between them
+  for (int i = 0; i < 5; i++) {
+    images[i] = capturePhoto();
+    if (images[i] == NULL) {
+      Serial.println("Failed to capture image " + String(i));
+    }
+    delay(PHOTO_DELAY);
+  }
+  
+  // Update the main fb pointer to the latest image for web display
+  if (fb) {
+    esp_camera_fb_return(fb);
+  }
+  
+  // Copy the last image to fb for web display
+  if (images[4] != NULL) {
+    fb = esp_camera_fb_get();
+    if (fb) {
+      memcpy(fb->buf, images[4]->buf, images[4]->len);
+      fb->len = images[4]->len;
+    }
+  }
+  
+  Serial.println("Multiple photo capture complete");
 }
 
 void setupWebServer() {
@@ -242,14 +344,27 @@ void handleRoot() {
 }
 
 void handleCapture() {
-  capturePhoto();
+  captureMultiplePhotos();
   motionDetected = true;
   lastMotionTime = millis();
+  
+  // Send photos via MQTT
+  for (int i = 0; i < 5; i++) {
+    if (images[i] != NULL) {
+      sendImageViaMQTT(images[i], i);
+    }
+  }
+  
   server.sendHeader("Location", "/");
   server.send(303);
 }
 
 void handleImage() {
+  if (!fb) {
+    // If no image is available, try to capture one
+    fb = capturePhoto();
+  }
+  
   if (!fb) {
     server.send(404, "text/plain", "No image available");
     return;
@@ -265,4 +380,107 @@ void handleImage() {
 
 void handleNotFound() {
   server.send(404, "text/plain", "Page Not Found");
+}
+
+// Function to reconnect to MQTT broker
+void reconnectMQTT() {
+  int attempts = 0;
+  while (!mqttClient.connected() && attempts < 5) {
+    Serial.print("Connecting to MQTT broker...");
+    String clientId = "ESP32CAM-";
+    clientId += String(random(0xffff), HEX);
+    
+    if (mqttClient.connect(clientId.c_str(), mqtt_username, mqtt_password)) {
+      Serial.println("connected");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" retrying in 5 seconds");
+      delay(5000);
+      attempts++;
+    }
+  }
+}
+
+// Base64 encode function for image data
+String base64Encode(const uint8_t* data, size_t length) {
+  const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String encoded;
+  
+  // Reserve memory for base64 output (4 bytes for every 3 input bytes, plus some extra)
+  encoded.reserve(((length + 2) / 3) * 4);
+  
+  for (size_t i = 0; i < length; i += 3) {
+    uint32_t octet_a = i < length ? data[i] : 0;
+    uint32_t octet_b = (i + 1) < length ? data[i + 1] : 0;
+    uint32_t octet_c = (i + 2) < length ? data[i + 2] : 0;
+    
+    uint32_t triple = (octet_a << 16) + (octet_b << 8) + octet_c;
+    
+    encoded += base64_chars[(triple >> 18) & 0x3F];
+    encoded += base64_chars[(triple >> 12) & 0x3F];
+    encoded += (i + 1 < length) ? base64_chars[(triple >> 6) & 0x3F] : '=';
+    encoded += (i + 2 < length) ? base64_chars[triple & 0x3F] : '=';
+  }
+  
+  return encoded;
+}
+
+// Function to send image via MQTT
+void sendImageViaMQTT(camera_fb_t *fb, int imageNumber) {
+  if (!mqttClient.connected()) {
+    reconnectMQTT();
+    if (!mqttClient.connected()) {
+      Serial.println("Failed to connect to MQTT broker. Not sending image.");
+      return;
+    }
+  }
+  
+  if (!fb) {
+    Serial.println("Invalid image buffer");
+    return;
+  }
+  
+  // Convert image to base64
+  String base64Image = base64Encode(fb->buf, fb->len);
+  
+  // Check if conversion was successful
+  if (base64Image.length() > 0) {
+    // Split the image into chunks if it's too large for MQTT
+    int chunkSize = 10000; // Adjust based on MQTT broker's message size limit
+    int numChunks = (base64Image.length() + chunkSize - 1) / chunkSize;
+    
+    // Send a start message with metadata
+    String metadata = "{\"device_id\":\"" + String(device_id) + 
+                     "\",\"type\":\"image\",\"image_number\":" + String(imageNumber) + 
+                     ",\"chunks\":" + String(numChunks) + 
+                     ",\"size\":" + String(base64Image.length()) + 
+                     ",\"timestamp\":" + String(millis()) + "}";
+                     
+    char metadataTopic[60];
+    sprintf(metadataTopic, "%s/metadata", mqtt_topic_image);
+    mqttClient.publish(metadataTopic, metadata.c_str());
+    Serial.println("Published image metadata");
+    
+    // Send each chunk
+    for (int i = 0; i < numChunks; i++) {
+      int startIndex = i * chunkSize;
+      int endIndex = min((i + 1) * chunkSize, (int)base64Image.length());
+      String chunk = base64Image.substring(startIndex, endIndex);
+      
+      String chunkTopic = String(mqtt_topic_image) + "/chunk/" + String(imageNumber) + "/" + String(i);
+      boolean success = mqttClient.publish(chunkTopic.c_str(), chunk.c_str());
+      
+      if (!success) {
+        Serial.println("Failed to publish chunk " + String(i));
+      }
+      
+      // Small delay between chunks to avoid overwhelming the broker
+      delay(50);
+    }
+    
+    Serial.println("Image " + String(imageNumber) + " sent successfully in " + String(numChunks) + " chunks");
+  } else {
+    Serial.println("Failed to encode image to base64");
+  }
 }
