@@ -18,8 +18,8 @@ const char* serverUrl = "https://smmsrm9r-5000.inc1.devtunnels.ms";
 const char* mqtt_server = "c997ac04f7364048929feac82a351c39.s1.eu.hivemq.cloud";
 const int mqtt_port = 8883; // TLS/SSL port for secure connection
 const char* sensor_id = "S001"; // Set your sensor ID here
-const char* mqtt_username = "esp32-publisher"; // ESP32-specific username
-const char* mqtt_password = "Kaushikyadalaisagaydumbass53"; // ESP32-specific password
+const char* mqtt_username = "esp32-audio-publish"; // ESP32-specific username
+const char* mqtt_password = "Kaushikyadala53"; // ESP32-specific password
 
 // MQTT topics
 char mqtt_topic_audio[50]; // For audio data
@@ -160,6 +160,7 @@ void sendGunshotAlert() {
   doc["sensorId"] = sensor_id;
   doc["alertType"] = "Poaching alert";
   doc["audioAvailable"] = true;
+  doc["is_gunshot"] = true;  // Explicitly include gunshot detection status
   
   char jsonBuffer[256];
   serializeJson(doc, jsonBuffer);
@@ -471,8 +472,7 @@ void loop() {
     // Update last send time
     lastSendTime = currentTime;
     
-    // Also send HTTP request for compatibility
-    sendHttpPostRequest(true);
+    // HTTP POST request removed, now handled via MQTT
   }
 
   // If we're in streaming mode, send real-time audio
