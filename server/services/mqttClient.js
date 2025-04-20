@@ -231,6 +231,17 @@ async function finalizeAudioRecording(alertKey) {
     
     const audioBuffer = audioBuffers[alertKey];
     
+    // Make sure audio buffers exist
+    if (!audioBuffer.preshot || !audioBuffer.postshot || 
+        audioBuffer.preshot.length === 0 && audioBuffer.postshot.length === 0) {
+      console.error(`No audio data found for alert ${alertKey}`);
+      return;
+    }
+    
+    // Log the actual audio data we're processing
+    console.log(`Preshot packets: ${audioBuffer.preshot.length}, Postshot packets: ${audioBuffer.postshot.length}`);
+    console.log(`Total audio data: ${totalLength} bytes`);
+    
     // Combine all audio buffers (preshot and postshot)
     const allAudioBuffers = [...audioBuffer.preshot, ...audioBuffer.postshot];
     const totalLength = allAudioBuffers.reduce((acc, buf) => acc + buf.length, 0);
@@ -245,11 +256,20 @@ async function finalizeAudioRecording(alertKey) {
       audioBuffer.metadata.bitsPerSample
     );
     
+    // After creating the WAV file
+    if (!wavBuffer || wavBuffer.length <= 44) { // 44 is WAV header size
+      console.error("WAV file creation failed - empty or header only");
+      return;
+    }
+    
     // Calculate duration in seconds
     const duration = consolidatedAudio.length / audioBuffer.metadata.sampleRate;
     
     // Create a filename
     const filename = `${audioBuffer.sensorId}_${new Date(audioBuffer.timestamp).toISOString()}.wav`;
+    
+    console.log(`Audio data size: ${consolidatedAudio.length} bytes`);
+    console.log(`WAV buffer size: ${wavBuffer.length} bytes`);
     
     // If we have a reading ID, update the reading with the audio data
     if (audioBuffer.readingId) {
@@ -338,6 +358,7 @@ async function updateReadingWithAudio(readingId, wavBuffer, filename, sampleRate
       
       await reading.save();
       console.log(`Updated reading ${readingId} with audio data`);
+      console.log(`Updated reading with wavFile (${wavBuffer.length} bytes)`);
     } else {
       console.error(`Reading ${readingId} not found`);
     }
@@ -351,7 +372,7 @@ async function findAndUpdateReadingWithAudio(sensorId, timestamp, wavBuffer, fil
   try {
     // Look for readings with the same sensor ID around the timestamp
     // Allow a small time window to account for possible time differences
-    const timeWindow = 10000; // 10 seconds
+    const timeWindow = 30000; // 30 seconds instead of 10
     const timestampDate = new Date(timestamp);
     const minTime = new Date(timestampDate.getTime() - timeWindow);
     const maxTime = new Date(timestampDate.getTime() + timeWindow);

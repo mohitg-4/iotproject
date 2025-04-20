@@ -3,7 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from 'next/dynamic';
-import WaveSurfer from 'wavesurfer.js'
+import SimpleAudioPlayer from '../components/SimpleAudioPlayer';
+
 interface SensorData {
   timestamp: Date;
   sensorId: string;
@@ -43,93 +44,6 @@ interface EnrichedAlert extends Alert {
     status: string;
   };
 }
-
-// Audio Waveform Component
-const AudioWaveform = ({ readingId }: { readingId: string }) => {
-  const waveformRef = useRef<HTMLDivElement>(null);
-  const wavesurferRef = useRef<any>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!waveformRef.current) return;
-    
-    // Initialize WaveSurfer
-    const wavesurfer = WaveSurfer.create({
-      container: waveformRef.current,
-      waveColor: '#4285f4',
-      progressColor: '#f44242',
-      height: 80,
-      cursorWidth: 1,
-      cursorColor: '#333',
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 3
-    });
-    
-    wavesurferRef.current = wavesurfer;
-    
-    // Set the URL for the audio file
-    const audioUrl = `/api/audio/${readingId}`;
-    
-    // Load the audio file
-    wavesurfer.load(audioUrl);
-    
-    // Setup event listeners
-    wavesurfer.on('ready', () => {
-      setLoading(false);
-    });
-    
-    wavesurfer.on('play', () => {
-      setIsPlaying(true);
-    });
-    
-    wavesurfer.on('pause', () => {
-      setIsPlaying(false);
-    });
-    
-    wavesurfer.on('finish', () => {
-      setIsPlaying(false);
-    });
-    
-    wavesurfer.on('error', (err: any) => {
-      console.error('WaveSurfer error:', err);
-      setError('Failed to load audio');
-      setLoading(false);
-    });
-    
-    // Cleanup on unmount
-    return () => {
-      wavesurfer.destroy();
-    };
-  }, [readingId]);
-  
-  const handlePlayPause = () => {
-    if (wavesurferRef.current) {
-      wavesurferRef.current.playPause();
-    }
-  };
-  
-  return (
-    <div className="mt-4 p-3 bg-gray-800 rounded-lg">
-      <div className="mb-3">
-        <button 
-          onClick={handlePlayPause}
-          disabled={loading || !!error}
-          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
-        >
-          {isPlaying ? '⏸️ Pause' : '▶️ Play'}
-        </button>
-      </div>
-      
-      {loading && <div className="text-gray-400 text-sm">Loading audio waveform...</div>}
-      {error && <div className="text-red-400 text-sm">{error}</div>}
-      
-      <div ref={waveformRef} className="bg-gray-900 rounded p-2"></div>
-    </div>
-  );
-};
 
 export default function Alerts() {
   const router = useRouter();
@@ -496,7 +410,7 @@ export default function Alerts() {
                         {alert.sensorData.audioData.available && 
                          expandedAlertId === alert.sensorData._id && 
                          alert.sensorData._id && (
-                          <AudioWaveform readingId={alert.sensorData._id} />
+                          <SimpleAudioPlayer readingId={alert.sensorData._id} />
                         )}
                       </div>
                     </div>
