@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 // MQTT broker configuration
-const brokerUrl = 'mqtt://c997ac04f7364048929feac82a351c39.s1.eu.hivemq.cloud:8883';
+const brokerUrl = 'mqtts://c997ac04f7364048929feac82a351c39.s1.eu.hivemq.cloud:8883';
 const options = {
   clientId: 'iot-server-' + Math.random().toString(16).substring(2, 8),
   clean: true,
