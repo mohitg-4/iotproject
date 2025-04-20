@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import Link from "next/link";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-
+import dynamic from 'next/dynamic';
+import WaveSurfer from 'wavesurfer.js'
 interface SensorData {
   timestamp: Date;
   sensorId: string;
@@ -15,6 +15,10 @@ interface SensorData {
   audioData: {
     available: boolean;
     data: string;
+    filename?: string;
+    sampleRate?: number;
+    bitsPerSample?: number;
+    duration?: number;
   };
   viewed: boolean;
   _id?: string;
@@ -40,6 +44,93 @@ interface EnrichedAlert extends Alert {
   };
 }
 
+// Audio Waveform Component
+const AudioWaveform = ({ readingId }: { readingId: string }) => {
+  const waveformRef = useRef<HTMLDivElement>(null);
+  const wavesurferRef = useRef<any>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!waveformRef.current) return;
+    
+    // Initialize WaveSurfer
+    const wavesurfer = WaveSurfer.create({
+      container: waveformRef.current,
+      waveColor: '#4285f4',
+      progressColor: '#f44242',
+      height: 80,
+      cursorWidth: 1,
+      cursorColor: '#333',
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 3
+    });
+    
+    wavesurferRef.current = wavesurfer;
+    
+    // Set the URL for the audio file
+    const audioUrl = `/api/audio/${readingId}`;
+    
+    // Load the audio file
+    wavesurfer.load(audioUrl);
+    
+    // Setup event listeners
+    wavesurfer.on('ready', () => {
+      setLoading(false);
+    });
+    
+    wavesurfer.on('play', () => {
+      setIsPlaying(true);
+    });
+    
+    wavesurfer.on('pause', () => {
+      setIsPlaying(false);
+    });
+    
+    wavesurfer.on('finish', () => {
+      setIsPlaying(false);
+    });
+    
+    wavesurfer.on('error', (err: any) => {
+      console.error('WaveSurfer error:', err);
+      setError('Failed to load audio');
+      setLoading(false);
+    });
+    
+    // Cleanup on unmount
+    return () => {
+      wavesurfer.destroy();
+    };
+  }, [readingId]);
+  
+  const handlePlayPause = () => {
+    if (wavesurferRef.current) {
+      wavesurferRef.current.playPause();
+    }
+  };
+  
+  return (
+    <div className="mt-4 p-3 bg-gray-800 rounded-lg">
+      <div className="mb-3">
+        <button 
+          onClick={handlePlayPause}
+          disabled={loading || !!error}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors disabled:bg-gray-600 disabled:cursor-not-allowed"
+        >
+          {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+        </button>
+      </div>
+      
+      {loading && <div className="text-gray-400 text-sm">Loading audio waveform...</div>}
+      {error && <div className="text-red-400 text-sm">{error}</div>}
+      
+      <div ref={waveformRef} className="bg-gray-900 rounded p-2"></div>
+    </div>
+  );
+};
+
 export default function Alerts() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("recent");
@@ -48,6 +139,7 @@ export default function Alerts() {
   const [sortBy, setSortBy] = useState("newest");
   const [filterBy, setFilterBy] = useState("all");
   const [unreadCount, setUnreadCount] = useState(0);
+  const [expandedAlertId, setExpandedAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAlerts();
@@ -231,6 +323,18 @@ export default function Alerts() {
     router.push("/dashboard");
   };
 
+  // Toggle expanded state for an alert
+  const toggleAlertExpand = (alertId: string | undefined, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent triggering the mark as read handler
+    if (!alertId) return;
+    
+    if (expandedAlertId === alertId) {
+      setExpandedAlertId(null);
+    } else {
+      setExpandedAlertId(alertId);
+    }
+  };
+
   return (
     <div className="p-6">
       {/* Back Button and Header */}
@@ -343,16 +447,18 @@ export default function Alerts() {
                 getFilteredAndSortedAlerts().map((alert, index) => (
                   <div 
                     key={alert.sensorData._id || index}
-                    className={`bg-gray-700 p-4 rounded-lg cursor-pointer ${
+                    className={`bg-gray-700 p-4 rounded-lg ${
                       alert.sensorData.alertType === "AOK" 
                         ? 'border-l-4 border-gray-500' 
                         : !alert.sensorData.viewed 
                           ? 'border-l-4 border-red-500' 
                           : 'border-l-4 border-orange-500'
                     }`}
-                    onClick={() => handleMarkAsRead(alert.sensorData._id, index)}
                   >
-                    <div className="flex justify-between items-start mb-2">
+                    <div 
+                      className="flex justify-between items-start mb-2 cursor-pointer"
+                      onClick={() => handleMarkAsRead(alert.sensorData._id, index)}
+                    >
                       <h3 className="text-lg font-semibold text-white flex items-center">
                         Sensor: {alert.sensorData.sensorId}
                         {!alert.sensorData.viewed && (
@@ -374,7 +480,24 @@ export default function Alerts() {
                       <div className="mt-3">
                         <p className="font-semibold">Media Captured:</p>
                         <p>📹 Video: {alert.sensorData.videoData.available ? 'Available' : 'Not available'}</p>
-                        <p>🔊 Audio: {alert.sensorData.audioData.available ? 'Available' : 'Not available'}</p>
+                        <div className="flex items-center">
+                          <p>🔊 Audio: {alert.sensorData.audioData.available ? 'Available' : 'Not available'}</p>
+                          {alert.sensorData.audioData.available && (
+                            <button
+                              className="ml-3 px-3 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                              onClick={(e) => toggleAlertExpand(alert.sensorData._id, e)}
+                            >
+                              {expandedAlertId === alert.sensorData._id ? 'Hide Audio' : 'Show Audio'}
+                            </button>
+                          )}
+                        </div>
+                        
+                        {/* Audio Waveform Component */}
+                        {alert.sensorData.audioData.available && 
+                         expandedAlertId === alert.sensorData._id && 
+                         alert.sensorData._id && (
+                          <AudioWaveform readingId={alert.sensorData._id} />
+                        )}
                       </div>
                     </div>
                   </div>

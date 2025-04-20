@@ -17,10 +17,13 @@ export type SensorData = {
     };
     audioData: {
       available: boolean;
-      data: string;
+      sampleRate?: number;
+      bitsPerSample?: number;
+      duration?: number;
+      filename?: string;
+      wavFile?: Buffer;
     };
     viewed: boolean;
     _id: string;
   }
 };
-
