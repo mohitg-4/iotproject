@@ -35,9 +35,24 @@ const readingSchema = new mongoose.Schema({
           "type": "Boolean",
           "default": false
         },
-        "data": {
+        "sampleRate": {
+          "type": "Number",
+          "default": 8000
+        },
+        "bitsPerSample": {
+          "type": "Number",
+          "default": 8
+        },
+        "duration": {
+          "type": "Number",
+          "default": 0
+        },
+        "filename": {
           "type": "String",
-          "default": "No audio captured"
+          "default": ""
+        },
+        "wavFile": {
+          "type": "Buffer"
         }
       }
     },
@@ -47,7 +62,7 @@ const readingSchema = new mongoose.Schema({
     },
   }
 }, {
-  collection: 'sensorData' // This explicitly names the collection
+  collection: 'sensorData'
 });
 
 module.exports = mongoose.model("Reading", readingSchema);
