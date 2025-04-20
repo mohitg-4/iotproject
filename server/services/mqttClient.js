@@ -19,11 +19,16 @@ const options = {
 const topics = {
   sensorData: 'sensors/+/data',
   animalData: 'animals/+/location',
-  audioData: 'sensors/+/audio'  // New topic for audio streams
+  audioData: 'sensors/+/audio',  // New topic for audio streams
+  imageMetadata: 'cameras/+/image/metadata',  // New topic for image metadata
+  imageChunk: 'cameras/+/image/chunk/#'  // New topic for image chunks
 };
 
 // Audio buffer storage - stores packets until we have a complete recording
 const audioBuffers = {};
+
+// Store image chunks in memory before saving to DB
+const imageBuffers = {};
 
 // Create MQTT client
 const client = mqtt.connect(brokerUrl, options);
@@ -33,9 +38,9 @@ client.on('connect', () => {
   console.log('Connected to MQTT broker');
   
   // Subscribe to all relevant topics
-  client.subscribe([topics.sensorData, topics.animalData, topics.audioData], (err) => {
+  client.subscribe([topics.sensorData, topics.animalData, topics.audioData, topics.imageMetadata, topics.imageChunk], (err) => {
     if (!err) {
-      console.log(`Subscribed to topics: ${topics.sensorData}, ${topics.animalData}, ${topics.audioData}`);
+      console.log(`Subscribed to topics: ${topics.sensorData}, ${topics.animalData}, ${topics.audioData}, ${topics.imageMetadata}, ${topics.imageChunk}`);
     } else {
       console.error('Subscription error:', err);
     }
@@ -44,15 +49,16 @@ client.on('connect', () => {
 
 // Handle incoming messages
 client.on('message', async (topic, message) => {
-  console.log(`Received message on ${topic}: ${message.length} bytes`);
-  
   try {
-    // Extract the sensor ID from the topic
+    console.log(`Received message on topic: ${topic}`);
+    
+    // Extract the sensor/device ID from the topic (common for all handlers)
     const topicParts = topic.split('/');
     const sensorId = topicParts[1];
     
+    // Handle different message types based on topic
     if (topic.endsWith('/data')) {
-      // Process sensor data (alerts)
+      // Process sensor data
       const data = JSON.parse(message.toString());
       await processSensorData(topic, data);
     } else if (topic.endsWith('/location')) {
@@ -62,6 +68,13 @@ client.on('message', async (topic, message) => {
     } else if (topic.endsWith('/audio')) {
       // Process audio data - binary format
       await processAudioData(sensorId, message);
+    } else if (topic.endsWith('/image/metadata')) {
+      // Process image metadata
+      const data = JSON.parse(message.toString());
+      await processImageMetadata(topic, data);
+    } else if (topic.includes('/image/chunk/')) {
+      // Process image chunk
+      await processImageChunk(topic, message);
     }
   } catch (error) {
     console.error('Error processing MQTT message:', error);
@@ -229,12 +242,10 @@ async function finalizeAudioRecording(alertKey) {
   try {
     console.log(`Finalizing audio recording for alert ${alertKey}`);
     
+    // Get the audio buffer for this alert
     const audioBuffer = audioBuffers[alertKey];
-    
-    // Make sure audio buffers exist
-    if (!audioBuffer.preshot || !audioBuffer.postshot || 
-        audioBuffer.preshot.length === 0 && audioBuffer.postshot.length === 0) {
-      console.error(`No audio data found for alert ${alertKey}`);
+    if (!audioBuffer) {
+      console.error(`No audio buffer found for alert ${alertKey}`);
       return;
     }
     
@@ -242,63 +253,64 @@ async function finalizeAudioRecording(alertKey) {
     const allAudioBuffers = [...audioBuffer.preshot, ...audioBuffer.postshot];
     const totalLength = allAudioBuffers.reduce((acc, buf) => acc + buf.length, 0);
     
-    // Now log AFTER totalLength is defined
-    console.log(`Preshot packets: ${audioBuffer.preshot.length}, Postshot packets: ${audioBuffer.postshot.length}`);
-    console.log(`Total audio data: ${totalLength} bytes`);
+    console.log(`Audio data size: ${totalLength} bytes`);
+    console.log(`Preshot buffers: ${audioBuffer.preshot.length}, Postshot buffers: ${audioBuffer.postshot.length}`);
     
-    // Create a consolidated buffer from all audio packets
-    const consolidatedAudio = Buffer.concat(allAudioBuffers, totalLength);
-    
-    // Create a WAV file from the raw audio data
-    const wavBuffer = createWavFile(
-      consolidatedAudio, 
-      audioBuffer.metadata.sampleRate, 
-      audioBuffer.metadata.bitsPerSample
-    );
-    
-    // After creating the WAV file
-    if (!wavBuffer || wavBuffer.length <= 44) { // 44 is WAV header size
-      console.error("WAV file creation failed - empty or header only");
+    // Skip if no audio data
+    if (totalLength === 0) {
+      console.error(`No audio data to process for alert ${alertKey}`);
       return;
     }
     
+    // Create a consolidated buffer with all audio data
+    const consolidatedAudio = Buffer.concat(allAudioBuffers, totalLength);
+    
+    // Create a WAV file from the raw audio data
+    const sampleRate = audioBuffer.metadata.sampleRate;
+    const bitsPerSample = audioBuffer.metadata.bitsPerSample;
+    
+    // Create WAV file
+    const wavBuffer = createWavFile(consolidatedAudio, sampleRate, bitsPerSample);
+    
+    console.log(`WAV buffer created, size: ${wavBuffer.length} bytes`);
+    console.log(`WAV buffer type: ${typeof wavBuffer}, isBuffer: ${Buffer.isBuffer(wavBuffer)}`);
+    
     // Calculate duration in seconds
-    const duration = consolidatedAudio.length / audioBuffer.metadata.sampleRate;
+    const duration = totalLength / (sampleRate * (bitsPerSample / 8));
     
     // Create a filename
-    const filename = `${audioBuffer.sensorId}_${new Date(audioBuffer.timestamp).toISOString()}.wav`;
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `audio_${audioBuffer.sensorId}_${timestamp}.wav`;
     
-    console.log(`Audio data size: ${consolidatedAudio.length} bytes`);
-    console.log(`WAV buffer size: ${wavBuffer.length} bytes`);
-    
-    // If we have a reading ID, update the reading with the audio data
+    // If we have a reading ID, update it with the audio
     if (audioBuffer.readingId) {
       await updateReadingWithAudio(
-        audioBuffer.readingId,
-        wavBuffer,
-        filename,
-        audioBuffer.metadata.sampleRate,
-        audioBuffer.metadata.bitsPerSample,
+        audioBuffer.readingId, 
+        wavBuffer, 
+        filename, 
+        sampleRate, 
+        bitsPerSample, 
         duration
       );
     } else {
-      // If we don't have a reading ID, try to find the reading
+      // Try to find a matching reading by timestamp
       await findAndUpdateReadingWithAudio(
-        audioBuffer.sensorId,
-        audioBuffer.timestamp,
-        wavBuffer,
-        filename,
-        audioBuffer.metadata.sampleRate,
-        audioBuffer.metadata.bitsPerSample,
+        audioBuffer.sensorId, 
+        audioBuffer.timestamp, 
+        wavBuffer, 
+        filename, 
+        sampleRate, 
+        bitsPerSample, 
         duration
       );
     }
     
-    // Clean up the buffer
+    // Remove the audio buffer to free memory
     delete audioBuffers[alertKey];
-    console.log(`Audio processing completed for alert ${alertKey}`);
+    
+    console.log(`Audio processing complete for alert ${alertKey}`);
   } catch (error) {
-    console.error('Error finalizing audio recording:', error);
+    console.error(`Error finalizing audio recording for alert ${alertKey}:`, error);
   }
 }
 
@@ -403,6 +415,160 @@ async function findAndUpdateReadingWithAudio(sensorId, timestamp, wavBuffer, fil
     }
   } catch (error) {
     console.error('Error finding and updating reading with audio:', error);
+  }
+}
+
+// Process image metadata
+async function processImageMetadata(topic, data) {
+  try {
+    const deviceId = data.device_id;
+    const imageNumber = data.image_number;
+    const timestamp = data.timestamp;
+    const expectedChunks = data.chunks;
+    
+    console.log(`Received image metadata for ${deviceId}, image ${imageNumber}, expecting ${expectedChunks} chunks`);
+    
+    // Create a key for this specific image
+    const imageKey = `${deviceId}_${timestamp}_${imageNumber}`;
+    
+    // Initialize the image buffer
+    imageBuffers[imageKey] = {
+      deviceId: deviceId,
+      imageNumber: imageNumber,
+      timestamp: timestamp,
+      totalChunks: expectedChunks,
+      receivedChunks: 0,
+      chunks: new Array(expectedChunks),
+      size: data.size,
+      isComplete: false
+    };
+    
+    // Look for a sensor reading to attach this image to
+    // Find a reading from the last 10 seconds (assuming image comes shortly after the alert)
+    const tenSecondsAgo = new Date(Date.now() - 10000);
+    
+    const reading = await Reading.findOne({
+      'sensorData.sensorId': deviceId,
+      'sensorData.timestamp': { $gte: tenSecondsAgo }
+    }).sort({ 'sensorData.timestamp': -1 });
+    
+    if (reading) {
+      imageBuffers[imageKey].readingId = reading._id;
+      
+      // Update reading to indicate video is available
+      if (!reading.sensorData.videoData.available) {
+        reading.sensorData.videoData.available = true;
+        reading.sensorData.videoData.imageCount = 0;
+        reading.sensorData.videoData.images = [];
+        await reading.save();
+        console.log(`Updated reading ${reading._id} to enable video data`);
+      }
+    } else {
+      console.log(`No matching reading found for device ${deviceId}`);
+    }
+  } catch (error) {
+    console.error('Error processing image metadata:', error);
+  }
+}
+
+// Process image chunk
+async function processImageChunk(topic, message) {
+  try {
+    // Parse topic to extract device ID, image number, and chunk index
+    // Topic format: cameras/DEVICE_ID/image/chunk/IMAGE_NUMBER/CHUNK_INDEX
+    const parts = topic.split('/');
+    const deviceId = parts[1];
+    const imageNumber = parseInt(parts[4]);
+    const chunkIndex = parseInt(parts[5]);
+    
+    // Create a key that matches the one from metadata
+    // We need to find the correct timestamp from our imageBuffers
+    let imageKey = null;
+    let matchingBuffer = null;
+    
+    // Look through existing image buffers to find the right one
+    Object.keys(imageBuffers).forEach(key => {
+      if (key.startsWith(`${deviceId}_`) && 
+          imageBuffers[key].imageNumber === imageNumber &&
+          !imageBuffers[key].isComplete) {
+        imageKey = key;
+        matchingBuffer = imageBuffers[key];
+      }
+    });
+    
+    if (!matchingBuffer) {
+      console.error(`Received chunk but no matching buffer for ${deviceId}, image ${imageNumber}, chunk ${chunkIndex}`);
+      return;
+    }
+    
+    // Store this chunk
+    matchingBuffer.chunks[chunkIndex] = message.toString();
+    matchingBuffer.receivedChunks++;
+    
+    console.log(`Received chunk ${chunkIndex+1}/${matchingBuffer.totalChunks} for ${deviceId}, image ${imageNumber}`);
+    
+    // If we have received all chunks, combine and save
+    if (matchingBuffer.receivedChunks === matchingBuffer.totalChunks) {
+      console.log(`All chunks received for ${deviceId}, image ${imageNumber}. Combining...`);
+      
+      // Combine chunks into complete base64 string
+      const base64Image = matchingBuffer.chunks.join('');
+      
+      // Check if the combined size matches the expected size
+      if (base64Image.length === matchingBuffer.size) {
+        console.log(`Successfully reconstructed image of size ${base64Image.length} bytes`);
+        
+        // Save to database if we have a reading ID
+        if (matchingBuffer.readingId) {
+          await saveImageToReading(matchingBuffer.readingId, base64Image, imageNumber, matchingBuffer.timestamp);
+        } else {
+          console.log(`No reading ID found for ${deviceId}, image ${imageNumber}`);
+        }
+      } else {
+        console.error(`Size mismatch: expected ${matchingBuffer.size}, got ${base64Image.length}`);
+      }
+      
+      // Mark as complete and clean up
+      matchingBuffer.isComplete = true;
+      
+      // After some time, remove the buffer to free memory
+      setTimeout(() => {
+        delete imageBuffers[imageKey];
+      }, 60000); // Clean up after 1 minute
+    }
+  } catch (error) {
+    console.error('Error processing image chunk:', error);
+  }
+}
+
+// Save image to reading
+async function saveImageToReading(readingId, base64Image, imageNumber, timestamp) {
+  try {
+    const reading = await Reading.findById(readingId);
+    
+    if (reading) {
+      // Make sure images array exists
+      if (!reading.sensorData.videoData.images) {
+        reading.sensorData.videoData.images = [];
+      }
+      
+      // Add the new image
+      reading.sensorData.videoData.images.push({
+        timestamp: timestamp,
+        data: base64Image,
+        imageNumber: imageNumber
+      });
+      
+      // Update imageCount
+      reading.sensorData.videoData.imageCount = reading.sensorData.videoData.images.length;
+      
+      await reading.save();
+      console.log(`Saved image ${imageNumber} to reading ${readingId}`);
+    } else {
+      console.error(`Reading ${readingId} not found`);
+    }
+  } catch (error) {
+    console.error('Error saving image to reading:', error);
   }
 }
 

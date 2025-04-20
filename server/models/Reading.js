@@ -22,9 +22,24 @@ const readingSchema = new mongoose.Schema({
           "type": "Boolean",
           "default": false
         },
-        "data": {
-          "type": "String",
-          "default": "No video captured"
+        "imageCount": {
+          "type": "Number",
+          "default": 0
+        },
+        "images": [{
+          "timestamp": {
+            "type": "Number"
+          },
+          "data": {
+            "type": "String"
+          },
+          "imageNumber": {
+            "type": "Number"
+          }
+        }],
+        "isProcessed": {
+          "type": "Boolean",
+          "default": false
         }
       }
     },
