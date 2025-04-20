@@ -238,13 +238,13 @@ async function finalizeAudioRecording(alertKey) {
       return;
     }
     
-    // Log the actual audio data we're processing
-    console.log(`Preshot packets: ${audioBuffer.preshot.length}, Postshot packets: ${audioBuffer.postshot.length}`);
-    console.log(`Total audio data: ${totalLength} bytes`);
-    
     // Combine all audio buffers (preshot and postshot)
     const allAudioBuffers = [...audioBuffer.preshot, ...audioBuffer.postshot];
     const totalLength = allAudioBuffers.reduce((acc, buf) => acc + buf.length, 0);
+    
+    // Now log AFTER totalLength is defined
+    console.log(`Preshot packets: ${audioBuffer.preshot.length}, Postshot packets: ${audioBuffer.postshot.length}`);
+    console.log(`Total audio data: ${totalLength} bytes`);
     
     // Create a consolidated buffer from all audio packets
     const consolidatedAudio = Buffer.concat(allAudioBuffers, totalLength);
