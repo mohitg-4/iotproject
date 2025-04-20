@@ -6,7 +6,7 @@
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
-#include <CircularBuffer.h>
+#include <CircularBuffer.hpp>
 
 // WiFi Credentials
 const char* ssid = "Mi 11X";
@@ -90,6 +90,7 @@ bool gunshotDetected = false;
 
 // WiFi and MQTT clients
 WiFiClientSecure espClient;
+#define MQTT_MAX_PACKET_SIZE 1024  // Increase MQTT packet size limit
 PubSubClient mqttClient(espClient);
 
 // Function to add a value to the circular buffer
@@ -273,15 +274,19 @@ void sendHttpPostRequest(bool is_gunshot) {
 void transmitBufferedAudio() {
   uint8_t tempBuffer[MQTT_PACKET_SIZE - 256]; // Allow space for metadata
   int packetCount = 0;
-  int remaining = audioBuffer.size();
+  
+  // Get the current size - we'll process this many samples
+  int totalSamples = audioBuffer.size();
+  int remaining = totalSamples;
   
   while (remaining > 0) {
     // Determine how many samples to send in this packet
-    int samplesToSend = min(remaining, (int)sizeof(tempBuffer));
+    int samplesToSend = min((int)remaining, (int)sizeof(tempBuffer));
     
-    // Copy samples from circular buffer to temp buffer
+    // Extract samples to a temporary array (not modifying the original buffer yet)
     for (int i = 0; i < samplesToSend; i++) {
-      tempBuffer[i] = audioBuffer[i];
+      // Use shift() instead of first()/drop() combination
+      tempBuffer[i] = audioBuffer.shift();
     }
     
     // Send the audio packet
@@ -479,11 +484,14 @@ void loop() {
   if (isStreaming) {
     // Prepare audio packet for streaming
     uint8_t streamBuffer[MQTT_PACKET_SIZE - 256]; // Leave room for metadata
-    int samplesToSend = min(audioBuffer.size(), (int)sizeof(streamBuffer));
+    int samplesToSend = min((int)audioBuffer.size(), (int)sizeof(streamBuffer));
     
-    // Extract the most recent samples from the buffer
+    // Extract samples to the buffer without modifying the original
+    // (we'll keep collecting new samples in the main buffer)
     for (int i = 0; i < samplesToSend; i++) {
-      streamBuffer[i] = audioBuffer[i];
+      if (!audioBuffer.isEmpty()) {
+        streamBuffer[i] = audioBuffer.shift();
+      }
     }
     
     // Send audio packet (marked as post-shot)
