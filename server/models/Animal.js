@@ -43,7 +43,7 @@ const animalSchema = new mongoose.Schema({
     default: Date.now
   }
 }, {
-  collection: 'animals'
+  collection: 'animals' 
 });
 
 module.exports = mongoose.model("Animal", animalSchema);

@@ -10,7 +10,7 @@ const options = {
   clientId: 'iot-server-' + Math.random().toString(16).substring(2, 8),
   clean: true,
   username: 'server-listener',
-  password: 'Kaushikyadalaisagaydumbass53',
+  password: 'Laptop99@!',
   protocol: 'mqtts',
   rejectUnauthorized: true
 };
